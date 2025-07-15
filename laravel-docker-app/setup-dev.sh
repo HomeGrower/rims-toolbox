@@ -2,6 +2,7 @@
 
 # RIMS Development Setup Script
 echo "🚀 Setting up RIMS Development Environment..."
+echo ""
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
@@ -9,19 +10,117 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Copy environment file
+# Copy environment files
+echo "📄 Setting up environment files..."
+echo ""
+
+# Main .env
 if [ ! -f .env ]; then
-    echo "📄 Copying environment file..."
     cp .env.dev .env
+    echo "✅ Created .env from .env.dev"
+    
+    echo ""
+    echo "🔐 Passwort-Konfiguration"
+    echo "========================"
+    echo ""
+    
+    # Get MySQL root password
+    echo "MySQL Root Passwort eingeben (min. 8 Zeichen):"
+    read -s -p "> " MYSQL_ROOT_PASS
+    echo ""
+    
+    # Validate password length
+    while [ ${#MYSQL_ROOT_PASS} -lt 8 ]; do
+        echo "❌ Passwort muss mindestens 8 Zeichen lang sein!"
+        read -s -p "> " MYSQL_ROOT_PASS
+        echo ""
+    done
+    
+    # Get MySQL user password
+    echo ""
+    echo "MySQL Laravel User Passwort eingeben (min. 8 Zeichen):"
+    read -s -p "> " MYSQL_USER_PASS
+    echo ""
+    
+    # Validate password length
+    while [ ${#MYSQL_USER_PASS} -lt 8 ]; do
+        echo "❌ Passwort muss mindestens 8 Zeichen lang sein!"
+        read -s -p "> " MYSQL_USER_PASS
+        echo ""
+    done
+    
+    # Update passwords in .env
+    sed -i.bak "s/MYSQL_ROOT_PASSWORD=.*/MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASS}/" .env
+    sed -i.bak "s/DB_PASSWORD=.*/DB_PASSWORD=${MYSQL_USER_PASS}/" .env
+    sed -i.bak "s/MYSQL_PASSWORD=.*/MYSQL_PASSWORD=${MYSQL_USER_PASS}/" .env
+    rm .env.bak
+    
+    echo ""
+    echo "✅ Passwörter wurden in .env gespeichert"
+    
+    # Levin's special check ;)
+    echo ""
+    echo "🎯 Letzte Frage bevor es weitergeht..."
+    echo "Bitte gib den folgenden Satz ein:"
+    echo ""
+    echo "➡️  levin ist ganz toll"
+    echo ""
+    
+    while true; do
+        read -p "> " LEVIN_CHECK
+        if [ "$LEVIN_CHECK" = "levin ist ganz toll" ]; then
+            echo ""
+            echo "✅ Perfekt! Du hast es geschafft! 🎉"
+            break
+        else
+            echo ""
+            echo "❌ komm schon du weist es doch auch"
+            echo ""
+            echo "Versuch's nochmal:"
+        fi
+    done
+else
+    echo "ℹ️  .env already exists"
+    # Read the MySQL root password from existing .env
+    MYSQL_ROOT_PASS=$(grep MYSQL_ROOT_PASSWORD .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
+fi
+
+# Laravel .env in src directory
+if [ ! -f src/.env ]; then
+    cp src/.env.example src/.env
+    echo "✅ Created src/.env from src/.env.example"
+    
+    # Copy database settings from main .env to src/.env
+    DB_HOST=$(grep "^DB_HOST=" .env | cut -d '=' -f2)
+    DB_PORT=$(grep "^DB_PORT=" .env | cut -d '=' -f2)
+    DB_DATABASE=$(grep "^DB_DATABASE=" .env | cut -d '=' -f2)
+    DB_USERNAME=$(grep "^DB_USERNAME=" .env | cut -d '=' -f2)
+    DB_PASSWORD=$(grep "^DB_PASSWORD=" .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
+    
+    # Update src/.env with values from main .env
+    sed -i.bak "s/^DB_HOST=.*/DB_HOST=${DB_HOST}/" src/.env
+    sed -i.bak "s/^DB_PORT=.*/DB_PORT=${DB_PORT}/" src/.env
+    sed -i.bak "s/^DB_DATABASE=.*/DB_DATABASE=${DB_DATABASE}/" src/.env
+    sed -i.bak "s/^DB_USERNAME=.*/DB_USERNAME=${DB_USERNAME}/" src/.env
+    sed -i.bak "s/^DB_PASSWORD=.*/DB_PASSWORD=${DB_PASSWORD}/" src/.env
+    
+    # Set fixed APP_KEY for development
+    sed -i.bak "s/^APP_KEY=.*/APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=/" src/.env
+    rm src/.env.bak
+    
+    echo "✅ Synchronized database settings to src/.env"
+else
+    echo "ℹ️  src/.env already exists, skipping"
 fi
 
 # Start containers
+echo ""
 echo "🐳 Starting Docker containers..."
 docker-compose up -d --build
 
 # Wait for MySQL to be ready
 echo "⏳ Waiting for MySQL to be ready..."
-until docker-compose exec db mysql -u root -psecret -e "SELECT 1" > /dev/null 2>&1; do
+until docker-compose exec db mysql -u root -p${MYSQL_ROOT_PASS} -e "SELECT 1" > /dev/null 2>&1; do
     echo "   MySQL is not ready yet... waiting"
     sleep 5
 done
@@ -74,7 +173,14 @@ docker-compose exec -d app npm run dev
 
 # Wait a moment for Vite to start
 echo "⏳ Waiting for Vite to start..."
-sleep 3
+sleep 5
+
+# Check if Vite is running
+if docker-compose exec app pgrep -f vite > /dev/null; then
+    echo "✅ Vite dev server is running!"
+else
+    echo "⚠️  Vite might not have started properly. Check logs with: docker-compose logs -f app"
+fi
 
 echo ""
 echo "🎉 Development environment with Vite is ready!"

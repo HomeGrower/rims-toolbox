@@ -18,7 +18,7 @@ class MinimalSeeder extends Seeder
             'name' => 'Admin User',
             'email' => 'admin@rims.live',
             'password' => Hash::make('kaffeistkalt14'),
-            'role' => 'super_admin',
+            'role' => 'admin',
             'is_super_admin' => true,
             'email_verified_at' => now(),
         ]);

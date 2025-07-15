@@ -332,36 +332,77 @@ class BackupManager extends Page implements HasForms
     public function uploadDatabaseBackup(): void
     {
         $this->validate([
-            'uploadedBackup' => 'required|file|mimes:sql,zip|max:512000', // Max 500MB
+            'uploadedBackup' => 'required|file|mimes:sql,zip,gz|max:512000', // Max 500MB
         ]);
         
         try {
             $file = $this->uploadedBackup;
             $tempPath = $file->getRealPath();
-            $extension = $file->getClientOriginalExtension();
+            $originalName = $file->getClientOriginalName();
+            $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
             
+            // Log the upload attempt
+            \Log::info('Database upload started', [
+                'filename' => $originalName,
+                'size' => $file->getSize(),
+                'extension' => $extension
+            ]);
+            
+            // Create a backup of current database before restore
+            try {
+                Artisan::call('backup:run', ['--only-db' => true]);
+                Notification::make()
+                    ->title('Current database backed up')
+                    ->body('A backup of your current database was created before restore.')
+                    ->info()
+                    ->send();
+            } catch (\Exception $e) {
+                \Log::warning('Pre-restore backup failed', ['error' => $e->getMessage()]);
+            }
+            
+            // Process based on file type
             if ($extension === 'sql') {
                 // Direct SQL file
                 $this->restoreDatabaseFromSql($tempPath);
             } elseif ($extension === 'zip') {
                 // ZIP file containing SQL
                 $this->restoreDatabaseFromZip($tempPath);
+            } elseif ($extension === 'gz' && str_ends_with($originalName, '.sql.gz')) {
+                // Gzipped SQL file
+                $this->restoreDatabaseFromGzip($tempPath);
+            } else {
+                throw new \Exception('Unsupported file format. Please upload .sql, .zip, or .sql.gz file.');
             }
+            
+            // Clear all caches after restore
+            Artisan::call('cache:clear');
+            Artisan::call('config:clear');
+            Artisan::call('view:clear');
             
             Notification::make()
                 ->title('Database restored successfully')
-                ->body('The database has been restored from the uploaded backup.')
+                ->body('The database has been restored and admin user has been ensured.')
                 ->success()
+                ->duration(10000)
                 ->send();
                 
             // Clear the upload
             $this->uploadedBackup = null;
             
+            // Reload backups list
+            $this->loadBackups();
+            
         } catch (\Exception $e) {
+            \Log::error('Database upload failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             Notification::make()
                 ->title('Upload failed')
                 ->body($e->getMessage())
                 ->danger()
+                ->duration(10000)
                 ->send();
         }
     }
@@ -443,12 +484,48 @@ class BackupManager extends Page implements HasForms
                 'name' => 'Admin User',
                 'email' => 'admin@rims.live',
                 'password' => bcrypt('kaffeistkalt14'),
-                'role' => 'super_admin',
+                'role' => 'admin',
                 'is_super_admin' => true,
                 'email_verified_at' => now(),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+        }
+    }
+    
+    private function restoreDatabaseFromGzip(string $gzipPath): void
+    {
+        $tempDir = storage_path('app/temp/gzip_restore_' . time());
+        mkdir($tempDir, 0755, true);
+        
+        try {
+            // Decompress the gzip file
+            $sqlFile = $tempDir . '/database.sql';
+            $gz = gzopen($gzipPath, 'rb');
+            $sql = fopen($sqlFile, 'wb');
+            
+            if (!$gz || !$sql) {
+                throw new \Exception('Could not open gzip file');
+            }
+            
+            while (!gzeof($gz)) {
+                fwrite($sql, gzread($gz, 4096));
+            }
+            
+            gzclose($gz);
+            fclose($sql);
+            
+            // Now restore from the SQL file
+            $this->restoreDatabaseFromSql($sqlFile);
+            
+        } finally {
+            // Clean up temp files
+            if (file_exists($sqlFile)) {
+                unlink($sqlFile);
+            }
+            if (is_dir($tempDir)) {
+                rmdir($tempDir);
+            }
         }
     }
 }
