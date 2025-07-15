@@ -1,0 +1,133 @@
+# Stage 1: PHP Dependencies
+FROM php:8.2-fpm AS php-dependencies
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libzip-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev \
+    libonig-dev \
+    libxml2-dev \
+    libicu-dev \
+    libsodium-dev \
+    zip \
+    unzip \
+    git \
+    curl \
+    default-mysql-client \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure GD extension
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg
+
+# Install PHP extensions including Redis
+RUN docker-php-ext-install \
+    bcmath \
+    exif \
+    gd \
+    intl \
+    mbstring \
+    pdo_mysql \
+    pcntl \
+    sodium \
+    zip \
+    opcache
+
+# Install Redis extension
+RUN pecl install redis && docker-php-ext-enable redis
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Create application user
+RUN groupadd -g 1000 www && \
+    useradd -u 1000 -ms /bin/bash -g www www
+
+# Copy PHP configuration files
+COPY docker/php/opcache.prod.ini /usr/local/etc/php/conf.d/opcache.ini
+COPY docker/php/php.prod.ini /usr/local/etc/php/conf.d/custom.ini
+
+# Stage 2: Composer Dependencies
+FROM php-dependencies AS composer-dependencies
+
+WORKDIR /var/www/html
+
+# Copy only composer files first for better caching
+COPY src/composer.json src/composer.lock ./
+
+# Install production dependencies as root (for permissions)
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-interaction
+
+# Copy the rest of the application
+COPY src/ ./
+
+# Generate optimized autoloader
+RUN composer dump-autoload --optimize --no-dev
+
+# Stage 3: Frontend Builder
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /app
+
+# Copy package files
+COPY src/package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source files
+COPY src/ ./
+
+# Build assets
+RUN npm run build
+
+# Stage 4: Final Production Image
+FROM php-dependencies AS production
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Copy application from composer stage
+COPY --from=composer-dependencies --chown=www:www /var/www/html /var/www/html
+
+# Copy built frontend assets
+COPY --from=frontend-builder --chown=www:www /app/public/build /var/www/html/public/build
+
+# Create necessary directories and set permissions
+RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
+    && chown -R www:www storage bootstrap/cache \
+    && chmod -R 775 storage bootstrap/cache
+
+# Create volume mount points
+VOLUME ["/var/www/html/storage", "/var/www/html/bootstrap/cache"]
+
+# Copy OPcache configuration
+COPY docker/php/conf.d/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+
+# Create OPcache file cache directory
+RUN mkdir -p /tmp/opcache && chown www:www /tmp/opcache
+
+# Copy public files to a separate directory for nginx
+RUN cp -r /var/www/html/public /var/www/html/public_static
+
+# Clear any cached config
+RUN php artisan config:clear || true
+
+# Switch to non-root user
+USER www
+
+# Expose port 9000 for PHP-FPM
+EXPOSE 9000
+
+# Copy entrypoint script
+COPY docker/php/entrypoint.prod.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD php-fpm -t || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["php-fpm"]

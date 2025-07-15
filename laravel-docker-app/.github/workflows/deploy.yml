@@ -1,0 +1,151 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build and push Docker images
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to the Container registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./docker/php/Dockerfile.prod
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILD_DATE=${{ github.event.repository.updated_at }}
+          VCS_REF=${{ github.sha }}
+          VERSION=${{ steps.meta.outputs.version }}
+
+  # Deploy to production server
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.PRODUCTION_HOST }}
+        username: ${{ secrets.PRODUCTION_USER }}
+        key: ${{ secrets.PRODUCTION_SSH_KEY }}
+        port: ${{ secrets.PRODUCTION_PORT }}
+        script: |
+          # Navigate to application directory
+          cd /opt/rims-toolbox
+          
+          # Pull latest changes
+          git pull origin main
+          
+          # Update .env with production values
+          cp .env.production .env
+          
+          # Pull new Docker images
+          docker compose -f docker-compose.prod.yml pull
+          
+          # Run database backup before deployment
+          docker compose -f docker-compose.prod.yml exec -T app /docker/scripts/backup.sh || true
+          
+          # Stop current containers
+          docker compose -f docker-compose.prod.yml down
+          
+          # Start new containers
+          docker compose -f docker-compose.prod.yml up -d
+          
+          # Wait for services to be healthy
+          sleep 30
+          
+          # Run migrations
+          docker compose -f docker-compose.prod.yml exec -T app php artisan migrate --force
+          
+          # Clear and rebuild caches
+          docker compose -f docker-compose.prod.yml exec -T app php artisan config:cache
+          docker compose -f docker-compose.prod.yml exec -T app php artisan route:cache
+          docker compose -f docker-compose.prod.yml exec -T app php artisan view:cache
+          
+          # Check deployment status
+          docker compose -f docker-compose.prod.yml ps
+    
+    - name: Notify deployment status
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          Deployment ${{ job.status }}!
+          Commit: ${{ github.event.head_commit.message }}
+          Author: ${{ github.event.head_commit.author.name }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  # Run post-deployment tests
+  smoke-tests:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Check application health
+      run: |
+        response=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.PRODUCTION_DOMAIN }}/health)
+        if [ $response -eq 200 ]; then
+          echo "Health check passed"
+        else
+          echo "Health check failed with status: $response"
+          exit 1
+        fi
+    
+    - name: Run smoke tests
+      run: |
+        # Add your smoke test commands here
+        curl -f https://${{ secrets.PRODUCTION_DOMAIN }}/api/health || exit 1

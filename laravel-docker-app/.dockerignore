@@ -1,0 +1,88 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Laravel
+src/vendor
+src/node_modules
+src/public/hot
+src/public/storage
+src/storage/*.key
+src/storage/app/public/*
+src/storage/framework/cache/*
+src/storage/framework/sessions/*
+src/storage/framework/testing/*
+src/storage/framework/views/*
+src/storage/logs/*
+src/.phpunit.result.cache
+src/Homestead.json
+src/Homestead.yaml
+src/npm-debug.log
+src/yarn-error.log
+
+# Production
+src/public/build
+src/public/mix-manifest.json
+
+# Testing
+src/phpunit.xml
+src/.phpunit.cache
+src/coverage
+src/.coverage
+
+# Docs
+README.md
+CHANGELOG.md
+LICENSE
+docs/
+
+# Backups
+backups/
+*.sql
+*.sql.gz
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+*.log
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.crt

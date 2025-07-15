@@ -1,0 +1,88 @@
+/* Custom styles for Filament Repeater Headers */
+.fi-fo-repeater-item-header {
+    background-color: #EAF2F1 !important;
+    border-left: 6px solid #7B9D90 !important;
+    padding-left: 1rem !important;
+    transition: background-color 0.2s;
+}
+
+/* Ensure consistent border radius */
+.fi-fo-repeater-item {
+    border-radius: 0.75rem !important;
+    overflow: hidden !important;
+}
+
+.fi-fo-repeater-item-header {
+    border-radius: 0.75rem !important;
+}
+
+/* When expanded, only round top corners of header */
+.fi-fo-repeater-item:not(.fi-collapsed) .fi-fo-repeater-item-header {
+    border-radius: 0.75rem 0.75rem 0 0 !important;
+}
+
+.dark .fi-fo-repeater-item-header {
+    background-color: rgb(31 41 55) !important;
+    border-left: 6px solid #7B9D90 !important;
+}
+
+.fi-fo-repeater-item-header:hover {
+    background-color: #e0ebe9 !important;
+}
+
+.dark .fi-fo-repeater-item-header:hover {
+    background-color: rgb(55 65 81) !important;
+}
+
+/* Different colors for nested repeaters - Conditional Fields */
+.fi-fo-repeater-item .fi-fo-repeater-item .fi-fo-repeater-item-header {
+    background-color: #EAF2F1 !important;
+    border-left: 6px solid #7B9D90 !important;
+    padding-left: 1.5rem !important;
+}
+
+.dark .fi-fo-repeater-item .fi-fo-repeater-item .fi-fo-repeater-item-header {
+    background-color: rgb(67 56 202 / 0.1) !important;
+    border-left: 6px solid #7B9D90 !important;
+}
+
+/* Even more nested - Fields within conditions */
+.fi-fo-repeater-item .fi-fo-repeater-item .fi-fo-repeater-item .fi-fo-repeater-item-header {
+    background-color: #EAF2F1 !important;
+    border-left: 6px solid #7B9D90 !important;
+    padding-left: 2rem !important;
+}
+
+.dark .fi-fo-repeater-item .fi-fo-repeater-item .fi-fo-repeater-item .fi-fo-repeater-item-header {
+    background-color: rgb(79 70 229 / 0.1) !important;
+    border-left: 6px solid #7B9D90 !important;
+}
+
+/* Make the collapse/expand and action buttons more visible */
+.fi-fo-repeater-item-header button {
+    border-radius: 0.375rem !important;
+    padding: 0.25rem !important;
+}
+
+.fi-fo-repeater-item-header button:hover {
+    background-color: rgb(209 213 219) !important;
+}
+
+.dark .fi-fo-repeater-item-header button:hover {
+    background-color: rgb(75 85 99) !important;
+}
+
+/* Style the content area when expanded */
+.fi-fo-repeater-item:not(.fi-collapsed) .fi-fo-repeater-item-content {
+    border-left: 6px solid #7B9D90 !important;
+    border-right: 1px solid #e5e7eb !important;
+    border-bottom: 1px solid #e5e7eb !important;
+    border-radius: 0 0 0.75rem 0.75rem !important;
+    background-color: white !important;
+}
+
+.dark .fi-fo-repeater-item:not(.fi-collapsed) .fi-fo-repeater-item-content {
+    border-right: 1px solid #374151 !important;
+    border-bottom: 1px solid #374151 !important;
+    background-color: rgb(17 24 39) !important;
+}

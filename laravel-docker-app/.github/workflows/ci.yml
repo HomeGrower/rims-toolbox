@@ -1,0 +1,193 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PHP_VERSION: '8.2'
+  NODE_VERSION: '18'
+
+jobs:
+  # PHP Tests and Quality Checks
+  php-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+      
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ env.PHP_VERSION }}
+        extensions: mbstring, dom, fileinfo, mysql, redis, opcache, gd, intl
+        coverage: xdebug
+    
+    - name: Copy .env
+      run: |
+        cp src/.env.example src/.env
+        php -r "file_exists('src/.env') || copy('src/.env.example', 'src/.env');"
+    
+    - name: Install Dependencies
+      run: |
+        cd src
+        composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+    
+    - name: Generate key
+      run: |
+        cd src
+        php artisan key:generate
+    
+    - name: Directory Permissions
+      run: |
+        cd src
+        chmod -R 777 storage bootstrap/cache
+    
+    - name: Run Migrations
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: |
+        cd src
+        php artisan migrate --force
+    
+    - name: Run Tests
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: |
+        cd src
+        php artisan test --parallel
+    
+    - name: Run Laravel Pint
+      run: |
+        cd src
+        ./vendor/bin/pint --test
+    
+    - name: Run PHPStan
+      run: |
+        cd src
+        ./vendor/bin/phpstan analyse --memory-limit=2G || true
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./src/coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  # Frontend Tests and Build
+  frontend-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: src/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd src
+        npm ci
+    
+    - name: Run linting
+      run: |
+        cd src
+        npm run lint || true
+    
+    - name: Build assets
+      run: |
+        cd src
+        npm run build
+    
+    - name: Run tests
+      run: |
+        cd src
+        npm test || true
+
+  # Security Scanning
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run Security Checker
+      uses: symfonycorp/security-checker-action@v4
+      with:
+        lock: src/composer.lock
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Docker Build Test
+  docker-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Build PHP Production Image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./docker/php/Dockerfile.prod
+        push: false
+        tags: rims-app:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Run Trivy on Docker Image
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: rims-app:test
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'

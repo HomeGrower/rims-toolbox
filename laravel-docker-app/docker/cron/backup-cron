@@ -1,0 +1,14 @@
+# Automated backup schedule for RIMS Toolbox
+# This file should be added to the system crontab or container cron
+
+# Daily backup at 2:00 AM
+0 2 * * * /docker/scripts/backup.sh >> /var/log/backup.log 2>&1
+
+# Weekly full backup on Sunday at 3:00 AM
+0 3 * * 0 BACKUP_TYPE=full /docker/scripts/backup.sh >> /var/log/backup.log 2>&1
+
+# Monthly backup on the 1st at 4:00 AM (kept for longer retention)
+0 4 1 * * BACKUP_RETENTION_DAYS=90 /docker/scripts/backup.sh >> /var/log/backup.log 2>&1
+
+# Clean up old logs weekly
+0 5 * * 1 find /var/log -name "backup.log*" -mtime +30 -delete
