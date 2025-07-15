@@ -186,12 +186,25 @@ This project includes separate Docker configurations for development and product
    
    **Note**: Admin user is automatically created during seeding.
 
+**Troubleshooting 500 Errors:**
+If you get a 500 error on a new machine:
+```bash
+# Run the debug script
+chmod +x debug-500.sh
+./debug-500.sh
+
+# Or manually fix common issues:
+docker-compose exec app php artisan config:clear
+docker-compose exec app php artisan cache:clear
+docker-compose exec app chmod -R 777 storage bootstrap/cache
+docker-compose exec app php artisan migrate:fresh --seed
+```
+
 **Development features:**
-- Redis for caching and sessions
-- Queue worker for background jobs
-- Scheduler for cron jobs
+- File-based caching (no Redis needed)
+- Synchronous queue (no background workers)
 - Debug mode enabled
-- All production features available
+- Simplified setup for easier deployment
 
 #### Production Setup
 

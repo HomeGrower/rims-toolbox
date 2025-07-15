@@ -19,21 +19,21 @@ fi
 echo "🐳 Starting Docker containers..."
 docker-compose up -d --build
 
-# Wait for services to be ready
-echo "⏳ Waiting for services to start..."
-sleep 10
+# Wait for MySQL to be ready
+echo "⏳ Waiting for MySQL to be ready..."
+until docker-compose exec db mysql -u root -psecret -e "SELECT 1" > /dev/null 2>&1; do
+    echo "   MySQL is not ready yet... waiting"
+    sleep 5
+done
+echo "✅ MySQL is ready!"
 
 # Install PHP dependencies
 echo "📦 Installing PHP dependencies..."
 docker-compose exec app composer install
 
-# Generate application key
-echo "🔑 Generating application key..."
-docker-compose exec app php artisan key:generate --force
-
-# Cache configuration
-echo "⚡ Caching configuration..."
-docker-compose exec app php artisan config:cache
+# Clear any existing configuration
+echo "🧹 Clearing configuration..."
+docker-compose exec app php artisan config:clear
 
 # Install Node dependencies and fix vulnerabilities
 echo "📦 Installing Node dependencies..."
@@ -47,11 +47,29 @@ docker-compose exec app npm run build
 
 # Run migrations
 echo "🗄️ Running database migrations..."
-docker-compose exec app php artisan migrate --force
+docker-compose exec app php artisan migrate:fresh --force
 
 # Run seeders
 echo "🌱 Seeding database..."
 docker-compose exec app php artisan db:seed --force
+
+# Create admin user if it doesn't exist
+echo "👤 Creating admin user..."
+docker-compose exec app php artisan tinker --execute="
+    if (!\App\Models\User::where('email', 'admin@rims.live')->exists()) {
+        \App\Models\User::create([
+            'name' => 'Admin User',
+            'email' => 'admin@rims.live',
+            'password' => bcrypt('kaffeistkalt14'),
+            'role' => 'super_admin',
+            'is_super_admin' => true,
+            'email_verified_at' => now(),
+        ]);
+        echo 'Admin user created successfully!';
+    } else {
+        echo 'Admin user already exists.';
+    }
+"
 
 # Set permissions
 echo "🔒 Setting permissions..."
