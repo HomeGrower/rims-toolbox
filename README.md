@@ -186,6 +186,14 @@ This project includes separate Docker configurations for development and product
    
    **Note**: Admin user is automatically created during seeding.
 
+**Initial Database Setup:**
+The setup script only creates the admin user (admin@rims.live / kaffeistkalt14). 
+To load full data:
+1. Login to admin panel: http://localhost:8080/admin
+2. Navigate to System → Backups
+3. Upload a database backup (.sql or .zip file)
+4. The system will restore the database and ensure the admin user exists
+
 **Troubleshooting 500 Errors:**
 If you get a 500 error on a new machine:
 ```bash
@@ -197,7 +205,7 @@ chmod +x debug-500.sh
 docker-compose exec app php artisan config:clear
 docker-compose exec app php artisan cache:clear
 docker-compose exec app chmod -R 777 storage bootstrap/cache
-docker-compose exec app php artisan migrate:fresh --seed
+docker-compose exec app php artisan migrate:fresh --seed --class=MinimalSeeder
 ```
 
 **Development features:**

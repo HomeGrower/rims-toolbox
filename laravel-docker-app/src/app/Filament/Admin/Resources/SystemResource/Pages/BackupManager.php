@@ -17,10 +17,11 @@ use Filament\Forms\Contracts\HasForms;
 use App\Models\Setting;
 use Illuminate\Support\Facades\DB;
 use ZipArchive;
+use Livewire\WithFileUploads;
 
 class BackupManager extends Page implements HasForms
 {
-    use InteractsWithForms;
+    use InteractsWithForms, WithFileUploads;
 
     protected static string $resource = SystemResource::class;
 
@@ -35,6 +36,7 @@ class BackupManager extends Page implements HasForms
     public $isRunning = false;
     public $backups = [];
     public $backupSchedule;
+    public $uploadedBackup;
     
     public function mount(): void
     {
@@ -325,5 +327,128 @@ class BackupManager extends Page implements HasForms
         $pow = min($pow, count($units) - 1);
         
         return round($bytes / pow(1024, $pow), $precision) . ' ' . $units[$pow];
+    }
+    
+    public function uploadDatabaseBackup(): void
+    {
+        $this->validate([
+            'uploadedBackup' => 'required|file|mimes:sql,zip|max:512000', // Max 500MB
+        ]);
+        
+        try {
+            $file = $this->uploadedBackup;
+            $tempPath = $file->getRealPath();
+            $extension = $file->getClientOriginalExtension();
+            
+            if ($extension === 'sql') {
+                // Direct SQL file
+                $this->restoreDatabaseFromSql($tempPath);
+            } elseif ($extension === 'zip') {
+                // ZIP file containing SQL
+                $this->restoreDatabaseFromZip($tempPath);
+            }
+            
+            Notification::make()
+                ->title('Database restored successfully')
+                ->body('The database has been restored from the uploaded backup.')
+                ->success()
+                ->send();
+                
+            // Clear the upload
+            $this->uploadedBackup = null;
+            
+        } catch (\Exception $e) {
+            Notification::make()
+                ->title('Upload failed')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+    
+    private function restoreDatabaseFromSql(string $sqlPath): void
+    {
+        // Get database credentials
+        $dbHost = config('database.connections.mysql.host');
+        $dbPort = config('database.connections.mysql.port');
+        $dbName = config('database.connections.mysql.database');
+        $dbUser = config('database.connections.mysql.username');
+        $dbPass = config('database.connections.mysql.password');
+        
+        // Restore the database
+        $command = sprintf(
+            'mysql -h %s -P %s -u %s -p%s %s < %s',
+            escapeshellarg($dbHost),
+            escapeshellarg($dbPort),
+            escapeshellarg($dbUser),
+            escapeshellarg($dbPass),
+            escapeshellarg($dbName),
+            escapeshellarg($sqlPath)
+        );
+        
+        exec($command . ' 2>&1', $output, $returnCode);
+        
+        if ($returnCode !== 0) {
+            throw new \Exception('Database restore failed: ' . implode("\n", $output));
+        }
+        
+        // Ensure admin user exists after restore
+        $this->ensureAdminUser();
+    }
+    
+    private function restoreDatabaseFromZip(string $zipPath): void
+    {
+        $zip = new ZipArchive();
+        if ($zip->open($zipPath) === true) {
+            $tempDir = storage_path('app/temp/upload_restore_' . time());
+            mkdir($tempDir, 0755, true);
+            
+            $zip->extractTo($tempDir);
+            $zip->close();
+            
+            // Find SQL file
+            $files = array_merge(
+                glob($tempDir . '/*.sql'),
+                glob($tempDir . '/*/*.sql'),
+                glob($tempDir . '/*/*/*.sql')
+            );
+            
+            if (empty($files)) {
+                // Clean up
+                array_map('unlink', glob($tempDir . '/*'));
+                rmdir($tempDir);
+                throw new \Exception('No SQL file found in uploaded ZIP');
+            }
+            
+            $sqlFile = $files[0];
+            $this->restoreDatabaseFromSql($sqlFile);
+            
+            // Clean up
+            array_map('unlink', glob($tempDir . '/*'));
+            rmdir($tempDir);
+        } else {
+            throw new \Exception('Could not open uploaded ZIP file');
+        }
+    }
+    
+    private function ensureAdminUser(): void
+    {
+        // Check if admin user exists
+        $adminExists = DB::table('users')
+            ->where('email', 'admin@rims.live')
+            ->exists();
+            
+        if (!$adminExists) {
+            DB::table('users')->insert([
+                'name' => 'Admin User',
+                'email' => 'admin@rims.live',
+                'password' => bcrypt('kaffeistkalt14'),
+                'role' => 'super_admin',
+                'is_super_admin' => true,
+                'email_verified_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
     }
 }

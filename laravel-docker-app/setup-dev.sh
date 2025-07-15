@@ -49,27 +49,9 @@ docker-compose exec app npm run build
 echo "🗄️ Running database migrations..."
 docker-compose exec app php artisan migrate:fresh --force
 
-# Run seeders
-echo "🌱 Seeding database..."
-docker-compose exec app php artisan db:seed --force
-
-# Create admin user if it doesn't exist
-echo "👤 Creating admin user..."
-docker-compose exec app php artisan tinker --execute="
-    if (!\App\Models\User::where('email', 'admin@rims.live')->exists()) {
-        \App\Models\User::create([
-            'name' => 'Admin User',
-            'email' => 'admin@rims.live',
-            'password' => bcrypt('kaffeistkalt14'),
-            'role' => 'super_admin',
-            'is_super_admin' => true,
-            'email_verified_at' => now(),
-        ]);
-        echo 'Admin user created successfully!';
-    } else {
-        echo 'Admin user already exists.';
-    }
-"
+# Run minimal seeder (only admin user)
+echo "🌱 Creating admin user..."
+docker-compose exec app php artisan db:seed --class=MinimalSeeder --force
 
 # Set permissions
 echo "🔒 Setting permissions..."
