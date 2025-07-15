@@ -10,6 +10,19 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Kill existing RIMS containers and volumes for fresh start
+echo "🧹 Cleaning up existing RIMS Docker containers and volumes..."
+docker-compose -p laravel-docker-app down -v 2>/dev/null || true
+docker rm -f rims_app rims_db rims_webserver 2>/dev/null || true
+docker volume rm laravel-docker-app_dbdata 2>/dev/null || true
+
+# Remove existing .env files for fresh setup
+rm -f .env 2>/dev/null || true
+rm -f src/.env 2>/dev/null || true
+
+echo "✅ RIMS Docker cleanup completed"
+echo ""
+
 # Copy environment files
 echo "📄 Setting up environment files..."
 echo ""
@@ -58,27 +71,27 @@ if [ ! -f .env ]; then
     echo ""
     echo "✅ Passwörter wurden in .env gespeichert"
     
-    # Levin's special check ;)
-    echo ""
-    echo "🎯 Letzte Frage bevor es weitergeht..."
-    echo "Bitte gib den folgenden Satz ein:"
-    echo ""
-    echo "➡️  levin ist ganz toll"
-    echo ""
-    
-    while true; do
-        read -p "> " LEVIN_CHECK
-        if [ "$LEVIN_CHECK" = "levin ist ganz toll" ]; then
-            echo ""
-            echo "✅ Perfekt! Du hast es geschafft! 🎉"
-            break
-        else
-            echo ""
-            echo "❌ komm schon du weist es doch auch"
-            echo ""
-            echo "Versuch's nochmal:"
-        fi
-    done
+    # # Levin's special check ;)
+    # echo ""
+    # echo "🎯 Letzte Frage bevor es weitergeht..."
+    # echo "Bitte gib den folgenden Satz ein:"
+    # echo ""
+    # echo "➡️  levin ist ganz toll"
+    # echo ""
+    # 
+    # while true; do
+    #     read -p "> " LEVIN_CHECK
+    #     if [ "$LEVIN_CHECK" = "levin ist ganz toll" ]; then
+    #         echo ""
+    #         echo "✅ Perfekt! Du hast es geschafft! 🎉"
+    #         break
+    #     else
+    #         echo ""
+    #         echo "❌ komm schon du weist es doch auch"
+    #         echo ""
+    #         echo "Versuch's nochmal:"
+    #     fi
+    # done
 else
     echo "ℹ️  .env already exists"
     # Read the MySQL root password from existing .env
@@ -120,8 +133,23 @@ docker-compose up -d --build
 
 # Wait for MySQL to be ready
 echo "⏳ Waiting for MySQL to be ready..."
+ATTEMPTS=0
+MAX_ATTEMPTS=30
 until docker-compose exec db mysql -u root -p${MYSQL_ROOT_PASS} -e "SELECT 1" > /dev/null 2>&1; do
-    echo "   MySQL is not ready yet... waiting"
+    ATTEMPTS=$((ATTEMPTS+1))
+    if [ $ATTEMPTS -gt $MAX_ATTEMPTS ]; then
+        echo ""
+        echo "❌ MySQL konnte nicht gestartet werden nach $MAX_ATTEMPTS Versuchen."
+        echo ""
+        echo "🔧 Mögliche Lösungen:"
+        echo "   1. Führe 'docker-compose down -v' aus um alle Volumes zu löschen"
+        echo "   2. Starte das Setup-Skript erneut"
+        echo ""
+        echo "Falls das Problem weiterhin besteht, nutze das debug script:"
+        echo "   ./debug-500.sh"
+        exit 1
+    fi
+    echo "   MySQL ist noch nicht bereit... warte (Versuch $ATTEMPTS/$MAX_ATTEMPTS)"
     sleep 5
 done
 echo "✅ MySQL is ready!"
